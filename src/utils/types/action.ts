@@ -3,21 +3,24 @@ export interface ResponseError  {
 };
 
 export interface ResponseDeleted {
-    delete: boolean
+    deletedCount?: number;
+    deleted: boolean
 };
 
 export type DeletedOrError = TypeOrError<ResponseDeleted>;
 export type TypeOrError<T> = Promise<T | ResponseError>;
 
 export interface PaginationMeta {
-    pages: number;
+    currentPage: number;
+    totalPages: number;
+    totalCount: number;
+    hasNext: boolean;
+    hasPrev: boolean;
     limit: number;
-    total: number;
-    page: number;
 };
   
 export interface PaginationResponse<T> {
-    meta: PaginationMeta;
+    pagination: PaginationMeta;
     data: T[];
 };
   
