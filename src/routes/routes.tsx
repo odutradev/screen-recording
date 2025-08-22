@@ -1,17 +1,14 @@
 import { Navigate } from "react-router-dom";
 
-import InitialRoute from "@routes/components/initialRoute";
-import NotFound from "@pages/notFound";
-
+import ScreenRecorder from "@pages/screenRecorder";
 
 const routes = [
     {
         path: "/",
         privateRoute: false,
         routes: [
-            ["*", <Navigate to="/not-found" replace/>],
-            ['/not-found', <NotFound />],
-            ['', <InitialRoute />],
+            ["*", <Navigate to="/screen-recorder" replace/>],
+            ['/screen-recorder', <ScreenRecorder />],
         ]
     }
 ];
