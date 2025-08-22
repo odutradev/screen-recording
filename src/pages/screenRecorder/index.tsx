@@ -1,8 +1,10 @@
-import { useState, useRef } from 'react';
-import { Box, Button, Typography, FormControlLabel, Checkbox, Alert } from '@mui/material';
-import { PlayArrow, Stop, Download, Videocam } from '@mui/icons-material';
+import { Box, Button, Typography, FormControlLabel, Checkbox, Alert, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
+import { PlayArrow, Stop, Download, Videocam, Refresh } from '@mui/icons-material';
+import { useState, useRef, useEffect } from 'react';
 
-import { Container, VideoContainer, ControlsContainer, ConfigContainer } from './styles';
+import { Container, VideoContainer, ControlsContainer, ConfigContainer, PreRecordingContainer, PostRecordingContainer } from './styles';
+
+type VideoFormat = 'webm' | 'mp4';
 
 const ScreenRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
@@ -10,9 +12,41 @@ const ScreenRecorder = () => {
   const [includeAudio, setIncludeAudio] = useState(true);
   const [error, setError] = useState<string>('');
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
+  const [selectedFormat, setSelectedFormat] = useState<VideoFormat>('webm');
+  const [hasRecorded, setHasRecorded] = useState(false);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    if (streamRef.current) {
+      const handleStreamEnd = () => {
+        if (isRecording) {
+          stopRecording();
+        }
+      };
+
+      streamRef.current.getVideoTracks().forEach(track => {
+        track.addEventListener('ended', handleStreamEnd);
+      });
+
+      return () => {
+        if (streamRef.current) {
+          streamRef.current.getVideoTracks().forEach(track => {
+            track.removeEventListener('ended', handleStreamEnd);
+          });
+        }
+      };
+    }
+  }, [isRecording, streamRef.current]);
+
+  const getMimeType = (format: VideoFormat): string => {
+    if (format === 'mp4' && MediaRecorder.isTypeSupported('video/mp4')) {
+      return 'video/mp4';
+    }
+    return 'video/webm;codecs=vp9';
+  };
 
   const startRecording = async () => {
     try {
@@ -27,6 +61,7 @@ const ScreenRecorder = () => {
       };
 
       const stream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+      streamRef.current = stream;
       
       if (includeAudio) {
         try {
@@ -40,10 +75,8 @@ const ScreenRecorder = () => {
         }
       }
 
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'video/webm;codecs=vp9'
-      });
-
+      const mimeType = getMimeType(selectedFormat);
+      const mediaRecorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = mediaRecorder;
 
       mediaRecorder.ondataavailable = (event) => {
@@ -53,12 +86,17 @@ const ScreenRecorder = () => {
       };
 
       mediaRecorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+        const extension = selectedFormat === 'mp4' ? 'mp4' : 'webm';
+        const blob = new Blob(chunksRef.current, { type: `video/${extension}` });
         const url = URL.createObjectURL(blob);
         setVideoUrl(url);
         setRecordedBlob(blob);
+        setHasRecorded(true);
         
-        stream.getTracks().forEach(track => track.stop());
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach(track => track.stop());
+          streamRef.current = null;
+        }
       };
 
       mediaRecorder.start(1000);
@@ -79,9 +117,10 @@ const ScreenRecorder = () => {
 
   const downloadVideo = () => {
     if (recordedBlob && videoUrl) {
+      const extension = selectedFormat === 'mp4' ? 'mp4' : 'webm';
       const a = document.createElement('a');
       a.href = videoUrl;
-      a.download = `screen-recording-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.webm`;
+      a.download = `screen-recording-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.${extension}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -95,10 +134,12 @@ const ScreenRecorder = () => {
     setVideoUrl('');
     setRecordedBlob(null);
     setError('');
+    setHasRecorded(false);
+    setIsRecording(false);
   };
 
-  return (
-    <Container>
+  const renderPreRecording = () => (
+    <PreRecordingContainer>
       <Box sx={{ textAlign: 'center', mb: 4 }}>
         <Videocam sx={{ fontSize: 64, color: 'primary.main', mb: 2 }} />
         <Typography variant="h4" component="h1" gutterBottom>
@@ -110,7 +151,7 @@ const ScreenRecorder = () => {
       </Box>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
+        <Alert severity="error" sx={{ mb: 3, width: '100%', maxWidth: 500 }}>
           {error}
         </Alert>
       )}
@@ -126,80 +167,107 @@ const ScreenRecorder = () => {
           }
           label="Incluir áudio do microfone"
         />
+        
+        <FormControl sx={{ minWidth: 200 }} disabled={isRecording}>
+          <InputLabel>Formato do vídeo</InputLabel>
+          <Select
+            value={selectedFormat}
+            label="Formato do vídeo"
+            onChange={(e) => setSelectedFormat(e.target.value as VideoFormat)}
+          >
+            <MenuItem value="webm">WebM</MenuItem>
+            <MenuItem value="mp4" disabled={!MediaRecorder.isTypeSupported('video/mp4')}>
+              MP4 {!MediaRecorder.isTypeSupported('video/mp4') ? '(Não suportado)' : ''}
+            </MenuItem>
+          </Select>
+        </FormControl>
       </ConfigContainer>
 
       <ControlsContainer>
-        {!isRecording ? (
-          <Button
-            variant="contained"
-            size="large"
-            startIcon={<PlayArrow />}
-            onClick={startRecording}
-            disabled={!!videoUrl}
-            sx={{ minWidth: 200 }}
-          >
-            Iniciar Gravação
-          </Button>
-        ) : (
-          <Button
-            variant="contained"
-            color="error"
-            size="large"
-            startIcon={<Stop />}
-            onClick={stopRecording}
-            sx={{ minWidth: 200 }}
-          >
-            Parar Gravação
-          </Button>
-        )}
-
-        {videoUrl && (
-          <>
-            <Button
-              variant="outlined"
-              startIcon={<Download />}
-              onClick={downloadVideo}
-              sx={{ minWidth: 200 }}
-            >
-              Baixar Vídeo
-            </Button>
-            <Button
-              variant="text"
-              onClick={resetRecording}
-              sx={{ minWidth: 200 }}
-            >
-              Nova Gravação
-            </Button>
-          </>
-        )}
+        <Button
+          variant="contained"
+          size="large"
+          startIcon={<PlayArrow />}
+          onClick={startRecording}
+          sx={{ minWidth: 250, py: 1.5 }}
+        >
+          Iniciar Gravação
+        </Button>
       </ControlsContainer>
+    </PreRecordingContainer>
+  );
 
-      {videoUrl && (
-        <VideoContainer>
-          <Typography variant="h6" gutterBottom>
-            Visualizar Gravação
-          </Typography>
-          <video
-            src={videoUrl}
-            controls
-            style={{
-              width: '100%',
-              maxWidth: '800px',
-              height: 'auto',
-              borderRadius: '8px',
-              boxShadow: '0 4px 8px rgba(0,0,0,0.1)'
-            }}
-          />
-        </VideoContainer>
-      )}
+  const renderRecording = () => (
+    <Box sx={{ textAlign: 'center' }}>
+      <Typography variant="h5" gutterBottom sx={{ color: 'error.main', fontWeight: 'bold' }}>
+        🔴 Gravando...
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 4 }}>
+        Clique em "Parar" ou encerre o compartilhamento no navegador
+      </Typography>
+      
+      <Button
+        variant="contained"
+        color="error"
+        size="large"
+        startIcon={<Stop />}
+        onClick={stopRecording}
+        sx={{ minWidth: 250, py: 1.5 }}
+      >
+        Parar Gravação
+      </Button>
+    </Box>
+  );
 
-      {isRecording && (
-        <Box sx={{ textAlign: 'center', mt: 3 }}>
-          <Typography variant="body2" color="error" sx={{ fontWeight: 'bold' }}>
-            🔴 Gravando...
-          </Typography>
-        </Box>
-      )}
+  const renderPostRecording = () => (
+    <PostRecordingContainer>
+      <Typography variant="h5" gutterBottom sx={{ color: 'success.main', fontWeight: 'bold' }}>
+        ✅ Gravação Finalizada!
+      </Typography>
+      
+      <VideoContainer>
+        <video
+          src={videoUrl}
+          controls
+          style={{
+            width: '100%',
+            maxWidth: '800px',
+            height: 'auto',
+            borderRadius: '12px',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.15)'
+          }}
+        />
+      </VideoContainer>
+
+      <ControlsContainer>
+        <Button
+          variant="contained"
+          size="large"
+          startIcon={<Download />}
+          onClick={downloadVideo}
+          sx={{ minWidth: 200, py: 1.5 }}
+        >
+          Baixar Vídeo (.{selectedFormat})
+        </Button>
+        
+        <Button
+          variant="outlined"
+          size="large"
+          startIcon={<Refresh />}
+          onClick={resetRecording}
+          sx={{ minWidth: 200, py: 1.5 }}
+        >
+          Nova Gravação
+        </Button>
+      </ControlsContainer>
+    </PostRecordingContainer>
+  );
+
+  return (
+    <Container>
+      {!hasRecorded && !isRecording && renderPreRecording()}
+      {isRecording && renderRecording()}
+      {hasRecorded && !isRecording && renderPostRecording()}
     </Container>
   );
 };
